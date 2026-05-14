@@ -11,25 +11,27 @@ SHEET_ID = "1iXlPar8-AnWVJiZHjkU2muf6dwJnGvLvCZqxaJG2OAE"
 GID = "1361838733"
 url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID}"
 
-@st.cache_data(ttl=600)  # Odświeżaj dane co 10 minut
+@st.cache_data(ttl=300)
 def load_data():
-    # Wczytujemy dane
+    # Wczytujemy standardowo przecinkami
     df = pd.read_csv(url)
     
-    # CZYSZCZENIE DANYCH:
-    # 1. Konwertujemy BILLET na liczby, błędy (np. tekst) zamieniamy na puste pola (NaN)
-    df['BILLET'] = pd.to_numeric(df['BILLET'], errors='coerce')
+    # 2. Naprawa nazw kolumn - bierzemy pierwsze 4, nieważne jak się nazywają
+    # To chroni przed błędami typu 'KeyError'
+    df.columns = ['FIRMA', 'STOP', 'SREDNICA', 'MASA_1MB']
     
-    # 2. Zakładamy, że ostatnia kolumna to Masa/1mb - czyścimy ją tak samo
-    masa_col = df.columns[-1]
-    df[masa_col] = pd.to_numeric(df[masa_col], errors='coerce')
+    # 3. Czyszczenie liczb - zamiana przecinków na kropki (częsty problem w PL Excelu)
+    for col in ['SREDNICA', 'MASA_1MB']:
+        if df[col].dtype == object:
+            df[col] = df[col].astype(str).str.replace(',', '.').str.strip()
+        df[col] = pd.to_numeric(df[col], errors='coerce')
     
-    # 3. Usuwamy wiersze, które mają puste wartości (np. puste linie w Excelu lub wiersz "Suma")
-    df = df.dropna(subset=['WYTOP/FIRMA', 'INDEKS', 'BILLET', masa_col])
+    # 4. Usuwamy puste wiersze i wiersz "Suma końcowa"
+    df = df.dropna(subset=['FIRMA', 'STOP', 'SREDNICA', 'MASA_1MB'])
     
-    # 4. Upewniamy się, że nazwy firm i indeksów są traktowane jako tekst do sortowania
-    df['WYTOP/FIRMA'] = df['WYTOP/FIRMA'].astype(str)
-    df['INDEKS'] = df['INDEKS'].astype(str)
+    # 5. Czyścimy tekst
+    df['FIRMA'] = df['FIRMA'].astype(str).str.strip()
+    df['STOP'] = df['STOP'].astype(str).str.strip()
     
     return df
 
@@ -39,30 +41,25 @@ try:
     # --- SEKCJA WYBORU (SIDEBAR) ---
     st.sidebar.header("Parametry dostawy")
     
-    # Wybór firmy
-    firmy = sorted(df['WYTOP/FIRMA'].unique())
+    firmy = sorted(df['FIRMA'].unique())
     firma = st.sidebar.selectbox("Wybierz firmę", firmy)
     
-    # Filtrowanie i wybór stopu
-    df_firma = df[df['WYTOP/FIRMA'] == firma]
-    stopy = sorted(df_firma['INDEKS'].unique())
+    df_firma = df[df['FIRMA'] == firma]
+    stopy = sorted(df_firma['STOP'].unique())
     stop = st.sidebar.selectbox("Wybierz stop (INDEKS)", stopy)
     
-    # Filtrowanie i wybór średnicy
-    df_stop = df_firma[df_firma['INDEKS'] == stop]
-    srednice = sorted(df_stop['BILLET'].unique())
+    df_stop = df_firma[df_firma['STOP'] == stop]
+    srednice = sorted(df_stop['SREDNICA'].unique())
     srednica = st.sidebar.selectbox("Wybierz średnicę (BILLET)", srednice)
     
-    # Pobranie masy na 1mb
-    masa_col = df.columns[-1]
-    masa_1mb = df_stop[df_stop['BILLET'] == srednica][masa_col].values[0]
+    # Wyciągamy wartość masy 1mb
+    masa_1mb = df_stop[df_stop['SREDNICA'] == srednica]['MASA_1MB'].values[0]
     
-    st.info(f"Wybrany materiał: **{firma} | {stop} | ø{srednica}** \n\nŚrednia masa z Twoich dostaw: **{masa_1mb:.3f} kg/mb**")
+    st.info(f"Wybrany materiał: **{firma} | {stop} | ø{srednica}** \n\nŚrednia masa: **{masa_1mb:.3f} kg/mb**")
 
     # --- SEKCJA OBLICZEŃ ---
     st.subheader("Ilości w dostawie")
     
-    # Standardowe wałki (7mb)
     col1, col2 = st.columns(2)
     with col1:
         sztuki_7 = st.number_input("Ilość sztuk (7mb)", min_value=0, step=1, value=0)
@@ -74,14 +71,14 @@ try:
 
     st.divider()
 
-    # Obsługa dodatkowych (krótszych) wałków
+    # Obsługa dodatkowych wierszy
     if 'extra_rows' not in st.session_state:
         st.session_state.extra_rows = []
 
     if st.button("➕ Dodaj inne długości"):
         st.session_state.extra_rows.append({"len": 0.0, "qty": 0})
 
-    if st.button("🗑️ Wyczyść dodatkowe"):
+    if st.button("🗑️ Wyczyść wszystko"):
         st.session_state.extra_rows = []
         st.rerun()
 
@@ -97,22 +94,14 @@ try:
             m_wiersz = row['len'] * row['qty'] * masa_1mb
             st.write(f"Masa #{i+1}:")
             st.write(f"**{m_wiersz:.2f} kg**")
-        
         total_extra_mass += m_wiersz
 
-    # --- WYNIK KOŃCOWY ---
-    st.write("")
     st.markdown("---")
     masa_calkowita = masa_standard + total_extra_mass
-    
     st.metric(label="TEORETYCZNA MASA NETTO CAŁEJ DOSTAWY", value=f"{masa_calkowita:.2f} kg")
-    
-    if st.button("🔄 Oblicz od nowa"):
-        st.session_state.extra_rows = []
-        st.rerun()
 
 except Exception as e:
-    st.error(f"Wystąpił błąd podczas przetwarzania danych.")
-    st.info("Najczęstsza przyczyna: Tabela przestawna w Arkuszu Google zawiera puste wiersze lub sumy końcowe.")
-    with st.expander("Szczegóły błędu dla programisty"):
+    st.error("Problem z wczytaniem danych z Arkusza.")
+    st.write("Sprawdź czy Twoja tabela przestawna ma dokładnie te 4 kolumny w tej kolejności.")
+    with st.expander("Szczegóły błędu"):
         st.write(e)
