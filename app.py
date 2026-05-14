@@ -1,104 +1,76 @@
 import streamlit as st
 import pandas as pd
 
-# Konfiguracja strony
 st.set_page_config(page_title="Kalkulator Masy Aluminium", layout="centered")
-
 st.title("⚖️ Kalkulator Dostaw Aluminium")
 
-# 1. Dane z Twojego arkusza
 SHEET_ID = "1iXlPar8-AnWVJiZHjkU2muf6dwJnGvLvCZqxaJG2OAE"
 GID = "1361838733"
 url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID}"
 
-@st.cache_data(ttl=300)
+@st.cache_data(ttl=60)
 def load_data():
-    df = pd.read_csv(url)
-    # Wymuszamy nazwy kolumn
+    # Wczytujemy dane - pomijamy pierwszy wiersz, jeśli jest pusty lub błędny
+    df = pd.read_csv(url, header=0)
+    
+    # Jeśli wczytało się za mało kolumn, spróbujmy inaczej
+    if df.shape[1] < 4:
+         df = pd.read_csv(url, header=1) # Spróbuj od drugiego wiersza
+
+    # BIERZEMY TYLKO 4 PIERWSZE KOLUMNY - to najważniejsze!
+    df = df.iloc[:, :4]
     df.columns = ['FIRMA', 'STOP', 'SREDNICA', 'MASA_1MB']
     
-    # Czyszczenie i konwersja
+    # Czyścimy liczby (przecinki na kropki)
     for col in ['SREDNICA', 'MASA_1MB']:
-        if df[col].dtype == object:
-            df[col] = df[col].astype(str).str.replace(',', '.').str.strip()
+        df[col] = df[col].astype(str).str.replace(',', '.').str.replace(r'[^\d.]', '', regex=True)
         df[col] = pd.to_numeric(df[col], errors='coerce')
     
-    # Usuwamy puste i resetujemy indeksy
-    df = df.dropna(subset=['FIRMA', 'STOP', 'SREDNICA', 'MASA_1MB']).reset_index(drop=True)
+    # Usuwamy wiersze gdzie cokolwiek jest puste
+    df = df.dropna().reset_index(drop=True)
+    
+    # Usuwamy spacje z tekstów
     df['FIRMA'] = df['FIRMA'].astype(str).str.strip()
     df['STOP'] = df['STOP'].astype(str).str.strip()
+    
     return df
 
 try:
     df = load_data()
 
-    # --- SEKCJA WYBORU ---
-    st.sidebar.header("Parametry dostawy")
-    
-    firmy = sorted(df['FIRMA'].unique())
-    firma = st.sidebar.selectbox("Wybierz firmę", firmy)
-    
-    df_firma = df[df['FIRMA'] == firma]
-    stopy = sorted(df_firma['STOP'].unique())
-    stop = st.sidebar.selectbox("Wybierz stop (INDEKS)", stopy)
-    
-    df_stop = df_firma[df_firma['STOP'] == stop]
-    srednice = sorted(df_stop['SREDNICA'].unique())
-    srednica = st.sidebar.selectbox("Wybierz średnicę (BILLET)", srednice)
-    
-    # BEZPIECZNE POBIERANIE MASY
-    wynik_filtru = df_stop[df_stop['SREDNICA'] == srednica]['MASA_1MB']
-    
-    if not wynik_filtru.empty:
-        masa_1mb = wynik_filtru.values[0]
-        
-        st.info(f"Wybrany materiał: **{firma} | {stop} | ø{srednica}** \n\nŚrednia masa: **{masa_1mb:.3f} kg/mb**")
-
-        # --- SEKCJA OBLICZEŃ ---
-        st.subheader("Ilości w dostawie")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            sztuki_7 = st.number_input("Ilość sztuk (7mb)", min_value=0, step=1, value=0)
-        with col2:
-            masa_standard = sztuki_7 * 7 * masa_1mb
-            st.write("") 
-            st.write(f"Masa: **{masa_standard:.2f} kg**")
-
-        st.divider()
-
-        if 'extra_rows' not in st.session_state:
-            st.session_state.extra_rows = []
-
-        col_b1, col_b2 = st.columns(2)
-        with col_b1:
-            if st.button("➕ Dodaj inne długości"):
-                st.session_state.extra_rows.append({"len": 0.0, "qty": 0})
-        with col_b2:
-            if st.button("🗑️ Wyczyść wszystko"):
-                st.session_state.extra_rows = []
-                st.rerun()
-
-        total_extra_mass = 0.0
-        for i, row in enumerate(st.session_state.extra_rows):
-            c1, c2, c3 = st.columns([2, 2, 2])
-            with c1:
-                row['len'] = st.number_input(f"Długość (mb) #{i+1}", key=f"len_{i}", min_value=0.0, step=0.01)
-            with c2:
-                row['qty'] = st.number_input(f"Ilość (szt) #{i+1}", key=f"qty_{i}", min_value=0, step=1)
-            with c3:
-                m_wiersz = row['len'] * row['qty'] * masa_1mb
-                st.write(f"Masa #{i+1}:")
-                st.write(f"**{m_wiersz:.2f} kg**")
-            total_extra_mass += m_wiersz
-
-        st.markdown("---")
-        masa_calkowita = masa_standard + total_extra_mass
-        st.metric(label="TEORETYCZNA MASA NETTO CAŁEJ DOSTAWY", value=f"{masa_calkowita:.2f} kg")
-
+    if df.empty:
+        st.error("Baza danych jest pusta po wczytaniu!")
+        st.write("Sprawdź czy w Arkuszu Google tabela przestawna zaczyna się od komórki A1.")
     else:
-        st.warning("Nie znaleziono danych dla wybranej kombinacji. Sprawdź tabelę w Arkuszu.")
+        # --- SEKCJA WYBORU ---
+        st.sidebar.header("Parametry dostawy")
+        
+        firmy = sorted(df['FIRMA'].unique())
+        firma = st.sidebar.selectbox("Wybierz firmę", firmy)
+        
+        df_firma = df[df['FIRMA'] == firma]
+        stopy = sorted(df_firma['STOP'].unique())
+        stop = st.sidebar.selectbox("Wybierz stop", stopy)
+        
+        df_stop = df_firma[df_firma['STOP'] == stop]
+        srednice = sorted(df_stop['SREDNICA'].unique())
+        srednica = st.sidebar.selectbox("Wybierz średnicę", srednice)
+        
+        wynik = df_stop[df_stop['SREDNICA'] == srednica]
+
+        if not wynik.empty:
+            masa_1mb = wynik['MASA_1MB'].values[0]
+            st.success(f"Masa: **{masa_1mb:.3f} kg/mb**")
+            
+            sztuki = st.number_input("Ilość sztuk (7mb)", min_value=0, value=0)
+            st.metric("Masa całkowita", f"{sztuki * 7 * masa_1mb:.2f} kg")
+        else:
+            st.warning("Nie dopasowano masy dla tych parametrów.")
+
+    # DIAGNOSTYKA - rozwiń to na stronie, żeby zobaczyć co widzi program
+    with st.expander("Podgląd bazy (Diagnostyka)"):
+        st.write("Tak wyglądają dane, które pobrał program:")
+        st.dataframe(df.head(10))
 
 except Exception as e:
-    st.error("Wystąpił nieoczekiwany błąd.")
-    st.write(e)
+    st.error(f"Błąd krytyczny: {e}")
