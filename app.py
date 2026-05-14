@@ -10,67 +10,82 @@ url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=
 
 @st.cache_data(ttl=60)
 def load_data():
-    # Wczytujemy dane - pomijamy pierwszy wiersz, jeśli jest pusty lub błędny
-    df = pd.read_csv(url, header=0)
+    # 1. Wczytujemy dane
+    df = pd.read_csv(url)
     
-    # Jeśli wczytało się za mało kolumn, spróbujmy inaczej
-    if df.shape[1] < 4:
-         df = pd.read_csv(url, header=1) # Spróbuj od drugiego wiersza
-
-    # BIERZEMY TYLKO 4 PIERWSZE KOLUMNY - to najważniejsze!
+    # 2. Wybieramy tylko 4 pierwsze kolumny i nazywamy je
     df = df.iloc[:, :4]
     df.columns = ['FIRMA', 'STOP', 'SREDNICA', 'MASA_1MB']
     
-    # Czyścimy liczby (przecinki na kropki)
+    # 3. KLUCZOWA NAPRAWA: Wypełnianie pustych pól pod nazwą firmy i stopu (Forward Fill)
+    # Jeśli Google Sheets zostawia puste pola pod nazwą firmy, ten kod je uzupełni
+    df['FIRMA'] = df['FIRMA'].replace('', pd.NA).ffill()
+    df['STOP'] = df['STOP'].replace('', pd.NA).ffill()
+    
+    # 4. Czyszczenie liczb
     for col in ['SREDNICA', 'MASA_1MB']:
-        df[col] = df[col].astype(str).str.replace(',', '.').str.replace(r'[^\d.]', '', regex=True)
+        if df[col].dtype == object:
+            df[col] = df[col].astype(str).str.replace(',', '.').str.replace(r'[^\d.]', '', regex=True)
         df[col] = pd.to_numeric(df[col], errors='coerce')
     
-    # Usuwamy wiersze gdzie cokolwiek jest puste
-    df = df.dropna().reset_index(drop=True)
-    
-    # Usuwamy spacje z tekstów
-    df['FIRMA'] = df['FIRMA'].astype(str).str.strip()
-    df['STOP'] = df['STOP'].astype(str).str.strip()
+    # 5. Usuwamy tylko te wiersze, gdzie NAPRAWDĘ nie ma danych liczbowych (średnicy lub masy)
+    df = df.dropna(subset=['SREDNICA', 'MASA_1MB']).reset_index(drop=True)
     
     return df
 
 try:
     df = load_data()
 
-    if df.empty:
-        st.error("Baza danych jest pusta po wczytaniu!")
-        st.write("Sprawdź czy w Arkuszu Google tabela przestawna zaczyna się od komórki A1.")
-    else:
-        # --- SEKCJA WYBORU ---
-        st.sidebar.header("Parametry dostawy")
-        
-        firmy = sorted(df['FIRMA'].unique())
-        firma = st.sidebar.selectbox("Wybierz firmę", firmy)
-        
+    # --- SEKCJA WYBORU (SIDEBAR) ---
+    st.sidebar.header("Parametry dostawy")
+    
+    # Dodajemy "Wybierz..." na początku, żeby nie wypełniało automatycznie
+    lista_firm = ["Wybierz firmę..."] + sorted(df['FIRMA'].unique().tolist())
+    firma = st.sidebar.selectbox("1. Wybierz firmę", lista_firm)
+    
+    if firma != "Wybierz firmę...":
         df_firma = df[df['FIRMA'] == firma]
-        stopy = sorted(df_firma['STOP'].unique())
-        stop = st.sidebar.selectbox("Wybierz stop", stopy)
         
-        df_stop = df_firma[df_firma['STOP'] == stop]
-        srednice = sorted(df_stop['SREDNICA'].unique())
-        srednica = st.sidebar.selectbox("Wybierz średnicę", srednice)
+        lista_stopow = ["Wybierz stop..."] + sorted(df_firma['STOP'].unique().tolist())
+        stop = st.sidebar.selectbox("2. Wybierz stop (INDEX)", lista_stopow)
         
-        wynik = df_stop[df_stop['SREDNICA'] == srednica]
-
-        if not wynik.empty:
-            masa_1mb = wynik['MASA_1MB'].values[0]
-            st.success(f"Masa: **{masa_1mb:.3f} kg/mb**")
+        if stop != "Wybierz stop...":
+            df_stop = df_firma[df_firma['STOP'] == stop]
             
-            sztuki = st.number_input("Ilość sztuk (7mb)", min_value=0, value=0)
-            st.metric("Masa całkowita", f"{sztuki * 7 * masa_1mb:.2f} kg")
-        else:
-            st.warning("Nie dopasowano masy dla tych parametrów.")
+            srednice = sorted(df_stop['SREDNICA'].unique().tolist())
+            srednica = st.sidebar.selectbox("3. Wybierz średnicę (BILLET)", srednice)
+            
+            # Pobieranie wyniku
+            wynik = df_stop[df_stop['SREDNICA'] == srednica]
+            
+            if not wynik.empty:
+                masa_1mb = wynik['MASA_1MB'].values[0]
+                
+                # --- INTERFEJS GŁÓWNY ---
+                st.info(f"Wybrano: **{firma} | {stop} | ø{srednica}**")
+                st.metric("Średnia masa jednostkowa", f"{masa_1mb:.3f} kg/mb")
+                
+                st.subheader("Wpisz ilości")
+                sztuki_7 = st.number_input("Ilość sztuk (7mb)", min_value=0, step=1)
+                masa_std = sztuki_7 * 7 * masa_1mb
+                
+                if st.checkbox("Dodaj krótsze wałki"):
+                    st.write("Wpisz wymiary niestandardowe:")
+                    c1, c2 = st.columns(2)
+                    dl_kr = c1.number_input("Długość (mb)", min_value=0.0, step=0.1, key="dl_k")
+                    il_kr = c2.number_input("Ilość (szt)", min_value=0, step=1, key="il_k")
+                    masa_kr = dl_kr * il_kr * masa_1mb
+                else:
+                    masa_kr = 0.0
+                
+                st.divider()
+                st.metric("TEORETYCZNA MASA NETTO", f"{masa_std + masa_kr:.2f} kg")
+    else:
+        st.write("👈 Wybierz dostawcę z menu po lewej stronie, aby rozpocząć.")
 
-    # DIAGNOSTYKA - rozwiń to na stronie, żeby zobaczyć co widzi program
-    with st.expander("Podgląd bazy (Diagnostyka)"):
-        st.write("Tak wyglądają dane, które pobrał program:")
-        st.dataframe(df.head(10))
+    # Diagnostyka (zostawiamy, żebyś widział czy widzi wszystkie indeksy)
+    with st.expander("Podgląd bazy danych (Diagnostyka)"):
+        st.dataframe(df)
 
 except Exception as e:
-    st.error(f"Błąd krytyczny: {e}")
+    st.error(f"Błąd: {e}")
