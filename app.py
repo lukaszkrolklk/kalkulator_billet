@@ -84,7 +84,7 @@ try:
                     
                     suma_kg = (szt_7 * 7 * masa_1mb) + (dl_x * il_x * masa_1mb)
                     st.divider()
-                    st.metric("SUMA MASY NETTO", f"{suma_kg:.2f} kg")
+                    st.metric("TEORETYCZNE SUMA MASY NETTO", f"{suma_kg:.2f} kg")
 
     # Podgląd diagnostyczny
     with st.expander("Podgląd przefiltrowanych danych"):
