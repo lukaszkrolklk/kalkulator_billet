@@ -1,94 +1,364 @@
 import streamlit as st
 import pandas as pd
 
-st.set_page_config(page_title="Kalkulator Masy Aluminium", layout="centered")
-st.title("⚖️ Kalkulator Dostaw Aluminium")
+# =========================================
+# KONFIGURACJA STRONY
+# =========================================
+st.set_page_config(
+    page_title="Kalkulator Dostaw Aluminium",
+    page_icon="⚖️",
+    layout="centered"
+)
 
+# =========================================
+# LOGO + NAGŁÓWEK
+# =========================================
+c1, c2 = st.columns([1, 2])
+
+with c1:
+    st.image("logo.png", width=220)
+
+with c2:
+    st.title("Kalkulator Dostaw Aluminium")
+    st.caption("Aliplast Aluminium Extrusion")
+
+st.divider()
+
+# =========================================
+# GOOGLE SHEETS
+# =========================================
 SHEET_ID = "1iXlPar8-AnWVJiZHjkU2muf6dwJnGvLvCZqxaJG2OAE"
 GID = "1361838733"
+
 url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID}"
 
+# =========================================
+# WCZYTANIE DANYCH
+# =========================================
 @st.cache_data(ttl=60)
 def load_data():
-    # 1. Wczytujemy dane (pomijamy nagłówki, bo sami je nadamy)
+
     df = pd.read_csv(url, header=None)
-    
-    # 2. Szukamy wiersza, gdzie zaczynają się dane (omijamy napisy "Suma" itp.)
-    # Bierzemy 4 kolumny
+
+    # Pierwsze 4 kolumny
     df = df.iloc[:, :4]
-    df.columns = ['FIRMA', 'STOP', 'SREDNICA', 'MASA_1MB']
-    
-    # 3. Wypełniamy puste nazwy Firm i Stopów (Forward Fill)
-    df['FIRMA'] = df['FIRMA'].ffill()
-    df['STOP'] = df['STOP'].ffill()
-    
-    # 4. NAPRAWA "NaN": Czyścimy kolumny liczbowe
-    for col in ['SREDNICA', 'MASA_1MB']:
-        # Zamieniamy wszystko na tekst, usuwamy spacje, zamieniamy przecinek na kropkę
-        df[col] = df[col].astype(str).str.replace(',', '.').str.strip()
-        # Wyciągamy tylko cyfry i kropkę (usuwamy np. "mm", cale, litery)
-        df[col] = df[col].str.extract(r'(\d+\.?\d*)')[0]
-        # Konwertujemy na prawdziwe liczby
-        df[col] = pd.to_numeric(df[col], errors='coerce')
-    
-    # 5. Kluczowe: usuwamy wszystkie wiersze, które po czyszczeniu mają NaN (puste)
-    df = df.dropna(subset=['FIRMA', 'STOP', 'SREDNICA', 'MASA_1MB'])
-    
-    # Usuwamy wiersze, gdzie Masa lub Średnica wynosi 0
-    df = df[(df['SREDNICA'] > 0) & (df['MASA_1MB'] > 0)]
-    
+
+    df.columns = [
+        "FIRMA",
+        "STOP",
+        "BILLET",
+        "MASA_1MB"
+    ]
+
+    # Czyszczenie śmieciowych wierszy
+    df = df[df["FIRMA"].notna()]
+
+    df = df[
+        ~df["FIRMA"]
+        .astype(str)
+        .str.contains(
+            "suma|firma|wytop",
+            case=False,
+            na=False
+        )
+    ]
+
+    # Forward fill
+    df["FIRMA"] = df["FIRMA"].ffill()
+    df["STOP"] = df["STOP"].ffill()
+
+    # =========================================
+    # BILLET
+    # =========================================
+    df["BILLET"] = (
+        df["BILLET"]
+        .astype(str)
+        .str.replace(",", ".", regex=False)
+        .str.replace('"', "", regex=False)
+        .str.strip()
+    )
+
+    df["BILLET"] = df["BILLET"].str.extract(r"(\d+\.?\d*)")[0]
+
+    df["BILLET"] = pd.to_numeric(
+        df["BILLET"],
+        errors="coerce"
+    )
+
+    # =========================================
+    # MASA
+    # =========================================
+    df["MASA_1MB"] = (
+        df["MASA_1MB"]
+        .astype(str)
+        .str.replace(",", ".", regex=False)
+        .str.strip()
+    )
+
+    df["MASA_1MB"] = df["MASA_1MB"].str.extract(r"(\d+\.?\d*)")[0]
+
+    df["MASA_1MB"] = pd.to_numeric(
+        df["MASA_1MB"],
+        errors="coerce"
+    )
+
+    # Usuwanie błędów
+    df = df.dropna(
+        subset=[
+            "FIRMA",
+            "STOP",
+            "BILLET",
+            "MASA_1MB"
+        ]
+    )
+
+    df = df[
+        (df["BILLET"] > 0)
+        &
+        (df["MASA_1MB"] > 0)
+    ]
+
     return df
 
+
+# =========================================
+# APLIKACJA
+# =========================================
 try:
+
     df = load_data()
 
     if df.empty:
-        st.error("Baza danych jest pusta lub zawiera same błędy (NaN).")
-        st.info("Sprawdź czy w arkuszu kolumny Średnica i Masa zawierają same liczby.")
-    else:
-        # --- SIDEBAR ---
-        st.sidebar.header("Wybierz parametry")
-        
-        firmy = sorted(df['FIRMA'].unique().tolist())
-        firma = st.sidebar.selectbox("1. Firma", ["Wybierz..."] + firmy)
-        
-        if firma != "Wybierz...":
-            df_firma = df[df['FIRMA'] == firma]
-            stopy = sorted(df_firma['STOP'].unique().tolist())
-            stop = st.sidebar.selectbox("2. Stop (INDEX)", ["Wybierz..."] + stopy)
-            
-            if stop != "Wybierz...":
-                df_stop = df_firma[df_firma['STOP'] == stop]
-                # Sortujemy średnice od najmniejszej do największej
-                srednice = sorted(df_stop['SREDNICA'].unique().tolist())
-                srednica = st.sidebar.selectbox("3. Średnica (BILLET)", srednice)
-                
-                # Pobieranie wyniku
-                row = df_stop[df_stop['SREDNICA'] == srednica]
-                if not row.empty:
-                    masa_1mb = row['MASA_1MB'].values[0]
-                    
-                    # --- PANEL GŁÓWNY ---
-                    st.success(f"Wybrano: **{firma} | {stop} | ø{srednica}**")
-                    st.write(f"Masa jednostkowa dla tego wyboru: **{masa_1mb:.3f} kg/mb**")
-                    
-                    st.subheader("Wprowadź ilość")
-                    szt_7 = st.number_input("Ilość sztuk (standard 7mb)", min_value=0, step=1)
-                    
-                    if st.checkbox("Dodaj wałki o innej długości"):
-                        c1, c2 = st.columns(2)
-                        dl_x = c1.number_input("Długość (mb)", min_value=0.0, step=0.01, format="%.2f")
-                        il_x = c2.number_input("Ilość (szt)", min_value=0, step=1)
-                    else:
-                        dl_x, il_x = 0.0, 0
-                    
-                    suma_kg = (szt_7 * 7 * masa_1mb) + (dl_x * il_x * masa_1mb)
-                    st.divider()
-                    st.metric("TEORETYCZNE SUMA MASY NETTO", f"{suma_kg:.2f} kg")
+        st.error("Brak danych.")
+        st.stop()
 
-    # Podgląd diagnostyczny
-    with st.expander("Podgląd przefiltrowanych danych"):
-        st.dataframe(df)
+    # =========================================
+    # WYBÓR PARAMETRÓW
+    # =========================================
+    st.subheader("Wybierz parametry")
+
+    c1, c2, c3 = st.columns(3)
+
+    with c1:
+
+        firmy = sorted(
+            df["FIRMA"]
+            .unique()
+            .tolist()
+        )
+
+        firma = st.selectbox(
+            "Firma",
+            ["Wybierz..."] + firmy
+        )
+
+    if firma != "Wybierz...":
+
+        df_firma = df[
+            df["FIRMA"] == firma
+        ]
+
+        with c2:
+
+            stopy = sorted(
+                df_firma["STOP"]
+                .unique()
+                .tolist()
+            )
+
+            stop = st.selectbox(
+                "Stop / Index",
+                ["Wybierz..."] + stopy
+            )
+
+        if stop != "Wybierz...":
+
+            df_stop = df_firma[
+                df_firma["STOP"] == stop
+            ]
+
+            with c3:
+
+                billety = sorted(
+                    df_stop["BILLET"]
+                    .unique()
+                    .tolist()
+                )
+
+                billet = st.selectbox(
+                    "Billet",
+                    billety,
+                    format_func=lambda x: f'{x:g}"'
+                )
+
+            row = df_stop[
+                df_stop["BILLET"] == billet
+            ]
+
+            if not row.empty:
+
+                masa_1mb = row[
+                    "MASA_1MB"
+                ].values[0]
+
+                st.divider()
+
+                # =========================================
+                # PARAMETRY
+                # =========================================
+                with st.container(border=True):
+
+                    st.subheader(
+                        "Wybrane parametry"
+                    )
+
+                    p1, p2, p3, p4 = st.columns(4)
+
+                    p1.metric(
+                        "Firma",
+                        firma
+                    )
+
+                    p2.metric(
+                        "Stop",
+                        stop
+                    )
+
+                    p3.metric(
+                        "Billet",
+                        f'{billet:g}"'
+                    )
+
+                    p4.metric(
+                        "Masa 1 mb",
+                        f"{masa_1mb:.3f} kg"
+                    )
+
+                # =========================================
+                # ILOŚCI
+                # =========================================
+                st.subheader(
+                    "Wprowadź ilości"
+                )
+
+                with st.container(border=True):
+
+                    szt_7 = st.number_input(
+                        "Ilość sztuk standardowych 7 mb",
+                        min_value=0,
+                        step=1
+                    )
+
+                    dodaj = st.checkbox(
+                        "Dodaj dodatkową długość"
+                    )
+
+                    if dodaj:
+
+                        d1, d2 = st.columns(2)
+
+                        with d1:
+
+                            dl_x = st.number_input(
+                                "Długość [mb]",
+                                min_value=0.0,
+                                step=0.01,
+                                format="%.2f"
+                            )
+
+                        with d2:
+
+                            il_x = st.number_input(
+                                "Ilość sztuk",
+                                min_value=0,
+                                step=1
+                            )
+
+                    else:
+
+                        dl_x = 0.0
+                        il_x = 0
+
+                # =========================================
+                # OBLICZENIA
+                # =========================================
+                masa_standard = (
+                    szt_7
+                    * 7
+                    * masa_1mb
+                )
+
+                masa_dodatkowa = (
+                    dl_x
+                    * il_x
+                    * masa_1mb
+                )
+
+                suma_kg = (
+                    masa_standard
+                    + masa_dodatkowa
+                )
+
+                st.divider()
+
+                # =========================================
+                # WYNIK
+                # =========================================
+                with st.container(border=True):
+
+                    st.subheader("Wynik")
+
+                    st.metric(
+                        label="TEORETYCZNA SUMA MASY NETTO",
+                        value=f"{suma_kg:,.2f} kg".replace(",", " ")
+                    )
+
+                    tabela = pd.DataFrame(
+                        {
+                            "Pozycja": [
+                                "Standard 7 mb",
+                                "Dodatkowa długość",
+                                "RAZEM"
+                            ],
+                            "Długość [mb]": [
+                                7,
+                                dl_x,
+                                ""
+                            ],
+                            "Ilość [szt]": [
+                                szt_7,
+                                il_x,
+                                szt_7 + il_x
+                            ],
+                            "Masa [kg]": [
+                                round(masa_standard, 2),
+                                round(masa_dodatkowa, 2),
+                                round(suma_kg, 2)
+                            ]
+                        }
+                    )
+
+                    st.dataframe(
+                        tabela,
+                        use_container_width=True,
+                        hide_index=True
+                    )
+
+    # =========================================
+    # DANE TECHNICZNE
+    # =========================================
+    with st.expander(
+        "Podgląd danych"
+    ):
+        st.dataframe(
+            df,
+            use_container_width=True
+        )
 
 except Exception as e:
-    st.error(f"Wystąpił błąd: {e}")
+
+    st.error(
+        "Wystąpił błąd aplikacji."
+    )
+
+    st.exception(e)
