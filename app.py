@@ -1,455 +1,211 @@
 import streamlit as st
 import pandas as pd
-from pathlib import Path
 
-# ==================================================
-# KONFIGURACJA STRONY
-# ==================================================
-st.set_page_config(
-    page_title="Kalkulator Dostaw Aluminium",
-    page_icon="⚖️",
-    layout="centered"
-)
+# Konfiguracja strony
+st.set_page_config(page_title="Kalkulator Masy Aluminium", layout="centered")
 
-# ==================================================
-# CSS
-# ==================================================
-st.markdown("""
-<style>
+st.title("⚖️ Kalkulator Dostaw Aluminium")
 
-.logo-container {
-    margin-top: 35px;
-}
-
-</style>
-""", unsafe_allow_html=True)
-
-# ==================================================
-# LOGO
-# ==================================================
-LOGO_PATH = Path(__file__).parent / "logo.PNG"
-
-# ==================================================
-# NAGŁÓWEK
-# ==================================================
-c1, c2 = st.columns([1, 2])
-
-with c1:
-
-    st.markdown(
-        '<div class="logo-container">',
-        unsafe_allow_html=True
-    )
-
-    if LOGO_PATH.exists():
-
-        st.image(
-            str(LOGO_PATH),
-            width=220
-        )
-
-    st.markdown(
-        '</div>',
-        unsafe_allow_html=True
-    )
-
-with c2:
-
-    st.title(
-        "Kalkulator Dostaw Aluminium"
-    )
-
-    st.caption(
-        "Aliplast Aluminium Extrusion"
-    )
-
-st.divider()
-
-# ==================================================
-# GOOGLE SHEETS
-# ==================================================
+# Google Sheet
 SHEET_ID = "1iXlPar8-AnWVJiZHjkU2muf6dwJnGvLvCZqxaJG2OAE"
-GID = "1361838733"
 
-url = (
-    f"https://docs.google.com/spreadsheets/d/"
-    f"{SHEET_ID}/export?format=csv&gid={GID}"
-)
+# Tabela przestawna
+GID_PIVOT = "1361838733"
+url_pivot = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID_PIVOT}"
 
-# ==================================================
-# WCZYTYWANIE DANYCH
-# ==================================================
-@st.cache_data(ttl=60)
-def load_data():
+# Dane źródłowe
+GID_SOURCE = "0"
+url_source = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID_SOURCE}"
 
-    df = pd.read_csv(
-        url,
-        header=None
-    )
 
-    # Pobieramy pierwsze 4 kolumny
+@st.cache_data(ttl=300)
+def load_pivot_data():
+    df = pd.read_csv(url_pivot)
+
     df = df.iloc[:, :4]
+    df.columns = ['FIRMA', 'STOP', 'SREDNICA', 'MASA_1MB']
 
-    df.columns = [
-        "FIRMA",
-        "STOP",
-        "BILLET",
-        "MASA_1MB"
-    ]
+    for col in ['SREDNICA', 'MASA_1MB']:
+        df[col] = df[col].astype(str).str.replace(',', '.', regex=False).str.strip()
+        df[col] = pd.to_numeric(df[col], errors='coerce')
 
-    # Zamiana pustych tekstów
-    df = df.replace(
-        r"^\s*$",
-        pd.NA,
-        regex=True
-    )
+    df = df.dropna(subset=['FIRMA', 'STOP', 'SREDNICA', 'MASA_1MB'])
 
-    # Usuwamy tylko nagłówki / sumy
-    mask_usun = (
-        df["FIRMA"]
-        .astype(str)
-        .str.contains(
-            "suma|firma|wytop",
-            case=False,
-            na=False
-        )
-    )
-
-    df = df[~mask_usun]
-
-    # Forward fill
-    df["FIRMA"] = df["FIRMA"].ffill()
-    df["STOP"] = df["STOP"].ffill()
-
-    # ==================================================
-    # CZYSZCZENIE BILLET
-    # ==================================================
-    df["BILLET"] = (
-        df["BILLET"]
-        .astype(str)
-        .str.replace(",", ".", regex=False)
-        .str.replace('"', "", regex=False)
-        .str.strip()
-    )
-
-    df["BILLET"] = (
-        df["BILLET"]
-        .str.extract(r"(\d+\.?\d*)")[0]
-    )
-
-    df["BILLET"] = pd.to_numeric(
-        df["BILLET"],
-        errors="coerce"
-    )
-
-    # ==================================================
-    # CZYSZCZENIE MASY
-    # ==================================================
-    df["MASA_1MB"] = (
-        df["MASA_1MB"]
-        .astype(str)
-        .str.replace(",", ".", regex=False)
-        .str.strip()
-    )
-
-    df["MASA_1MB"] = (
-        df["MASA_1MB"]
-        .str.extract(r"(\d+\.?\d*)")[0]
-    )
-
-    df["MASA_1MB"] = pd.to_numeric(
-        df["MASA_1MB"],
-        errors="coerce"
-    )
-
-    # ==================================================
-    # USUWANIE BŁĘDÓW
-    # ==================================================
-    df = df.dropna(
-        subset=[
-            "FIRMA",
-            "STOP",
-            "BILLET",
-            "MASA_1MB"
-        ]
-    )
-
-    df = df[
-        (df["BILLET"] > 0)
-        &
-        (df["MASA_1MB"] > 0)
-    ]
+    df['FIRMA'] = df['FIRMA'].astype(str).str.strip()
+    df['STOP'] = df['STOP'].astype(str).str.strip()
 
     return df
 
-# ==================================================
-# GŁÓWNA APLIKACJA
-# ==================================================
+
+@st.cache_data(ttl=300)
+def load_source_data():
+    df = pd.read_csv(url_source)
+
+    df = df.iloc[:, :9]
+    df.columns = [
+        'INDEKS',
+        'BILLET',
+        'DLUGOSC',
+        'FIRMA',
+        'SZTUK',
+        'KG',
+        'MASA_1MB',
+        'INDEX',
+        'DATA'
+    ]
+
+    for col in ['BILLET', 'DLUGOSC', 'SZTUK', 'KG', 'MASA_1MB']:
+        df[col] = df[col].astype(str).str.replace(',', '.', regex=False).str.strip()
+        df[col] = pd.to_numeric(df[col], errors='coerce')
+
+    df['FIRMA'] = df['FIRMA'].astype(str).str.strip()
+    df['INDEX'] = df['INDEX'].astype(str).str.strip()
+
+    df = df.dropna(subset=['FIRMA', 'INDEX', 'BILLET', 'MASA_1MB'])
+
+    return df
+
+
 try:
+    df = load_pivot_data()
+    df_source = load_source_data()
 
-    df = load_data()
+    # --- SIDEBAR ---
+    st.sidebar.header("Parametry dostawy")
 
-    if df.empty:
+    firmy = sorted(df['FIRMA'].unique())
+    firma = st.sidebar.selectbox("Wybierz firmę", firmy)
 
-        st.error(
-            "Brak danych w arkuszu."
-        )
+    df_firma = df[df['FIRMA'] == firma]
+    stopy = sorted(df_firma['STOP'].unique())
+    stop = st.sidebar.selectbox("Wybierz stop (INDEKS)", stopy)
 
-        st.stop()
+    df_stop = df_firma[df_firma['STOP'] == stop]
+    srednice = sorted(df_stop['SREDNICA'].unique())
+    srednica = st.sidebar.selectbox("Wybierz średnicę (BILLET)", srednice)
 
-    # ==================================================
-    # WYBÓR PARAMETRÓW
-    # ==================================================
-    st.subheader(
-        "Wybierz parametry"
+    masa_1mb = df_stop[df_stop['SREDNICA'] == srednica]['MASA_1MB'].values[0]
+
+    st.info(
+        f"Wybrany materiał: **{firma} | {stop} | ø{srednica}**  \n\n"
+        f"Średnia masa z tabeli przestawnej: **{masa_1mb:.3f} kg/mb**"
     )
 
-    col1, col2, col3 = st.columns(3)
+    # --- OBLICZENIA ---
+    st.subheader("Ilości w dostawie")
 
-    # ==================================================
-    # FIRMA
-    # ==================================================
+    col1, col2 = st.columns(2)
+
     with col1:
+        sztuki_7 = st.number_input("Ilość sztuk (7mb)", min_value=0, step=1, value=0)
 
-        firmy = sorted(
-            df["FIRMA"]
-            .dropna()
-            .unique()
-            .tolist()
-        )
+    with col2:
+        masa_standard = sztuki_7 * 7 * masa_1mb
+        st.write("")
+        st.write("")
+        st.write(f"Masa: **{masa_standard:.0f} kg**")
 
-        firma = st.selectbox(
-            "Firma",
-            ["Wybierz..."] + firmy
-        )
+    st.divider()
 
-    if firma != "Wybierz...":
+    if 'extra_rows' not in st.session_state:
+        st.session_state.extra_rows = []
 
-        df_firma = df[
-            df["FIRMA"] == firma
-        ]
+    col_btn1, col_btn2 = st.columns(2)
 
-        # ==================================================
-        # STOP
-        # ==================================================
-        with col2:
+    with col_btn1:
+        if st.button("➕ Dodaj inne długości"):
+            st.session_state.extra_rows.append({"len": 0.0, "qty": 0})
+            st.rerun()
 
-            stopy = sorted(
-                df_firma["STOP"]
-                .dropna()
-                .unique()
-                .tolist()
+    with col_btn2:
+        if st.button("🗑️ Wyczyść wszystko"):
+            st.session_state.extra_rows = []
+            st.rerun()
+
+    total_extra_mass = 0.0
+    total_extra_mb = 0.0
+
+    for i, row in enumerate(st.session_state.extra_rows):
+        c1, c2, c3 = st.columns([2, 2, 2])
+
+        with c1:
+            row['len'] = st.number_input(
+                f"Długość (mb) #{i + 1}",
+                key=f"len_{i}",
+                min_value=0.0,
+                step=0.01
             )
 
-            stop = st.selectbox(
-                "Stop / Index",
-                ["Wybierz..."] + stopy
+        with c2:
+            row['qty'] = st.number_input(
+                f"Ilość (szt) #{i + 1}",
+                key=f"qty_{i}",
+                min_value=0,
+                step=1
             )
 
-        if stop != "Wybierz...":
+        with c3:
+            m_wiersz = row['len'] * row['qty'] * masa_1mb
+            st.write(f"Masa #{i + 1}:")
+            st.write(f"**{m_wiersz:.0f} kg**")
 
-            df_stop = df_firma[
-                df_firma["STOP"] == stop
-            ]
+        total_extra_mass += m_wiersz
+        total_extra_mb += row['len'] * row['qty']
 
-            # ==================================================
-            # BILLET
-            # ==================================================
-            with col3:
+    st.markdown("---")
 
-                billety = sorted(
-                    df_stop["BILLET"]
-                    .dropna()
-                    .unique()
-                    .tolist()
-                )
+    laczne_mb = (sztuki_7 * 7) + total_extra_mb
+    masa_calkowita = masa_standard + total_extra_mass
 
-                billet = st.selectbox(
-                    "Billet",
-                    billety,
-                    format_func=lambda x: f'{x:g}"'
-                )
+    # --- WIDEŁKI HISTORYCZNE ---
+    hist = df_source[
+        (df_source['FIRMA'] == firma) &
+        (df_source['INDEX'] == stop) &
+        (df_source['BILLET'] == srednica)
+    ]
 
-            # ==================================================
-            # MASA
-            # ==================================================
-            row = df_stop[
-                df_stop["BILLET"] == billet
-            ]
+    st.metric(
+        label="TEORETYCZNA MASA NETTO CAŁEJ DOSTAWY",
+        value=f"{masa_calkowita:.0f} kg"
+    )
 
-            if not row.empty:
+    if laczne_mb > 0 and not hist.empty:
+        min_1mb = hist['MASA_1MB'].min()
+        avg_1mb = hist['MASA_1MB'].mean()
+        max_1mb = hist['MASA_1MB'].max()
 
-                masa_1mb = row[
-                    "MASA_1MB"
-                ].values[0]
+        masa_min = laczne_mb * min_1mb
+        masa_avg_hist = laczne_mb * avg_1mb
+        masa_max = laczne_mb * max_1mb
 
-                st.divider()
+        odchylenie_minus = masa_calkowita - masa_min
+        odchylenie_plus = masa_max - masa_calkowita
 
-                # ==================================================
-                # PARAMETRY
-                # ==================================================
-                with st.container(border=True):
-
-                    st.subheader(
-                        "Wybrane parametry"
-                    )
-
-                    p1, p2, p3, p4 = st.columns(4)
-
-                    p1.metric(
-                        "Firma",
-                        firma
-                    )
-
-                    p2.metric(
-                        "Stop",
-                        stop
-                    )
-
-                    p3.metric(
-                        "Billet",
-                        f'{billet:g}"'
-                    )
-
-                    p4.metric(
-                        "Masa 1 mb",
-                        f"{masa_1mb:.3f} kg"
-                    )
-
-                # ==================================================
-                # ILOŚCI
-                # ==================================================
-                st.subheader(
-                    "Wprowadź ilości"
-                )
-
-                with st.container(border=True):
-
-                    szt_7 = st.number_input(
-                        "Ilość sztuk standardowych 7 mb",
-                        min_value=0,
-                        step=1
-                    )
-
-                    dodaj = st.checkbox(
-                        "Dodaj dodatkową długość"
-                    )
-
-                    if dodaj:
-
-                        d1, d2 = st.columns(2)
-
-                        with d1:
-
-                            dl_x = st.number_input(
-                                "Długość [mb]",
-                                min_value=0.0,
-                                step=0.01,
-                                format="%.2f"
-                            )
-
-                        with d2:
-
-                            il_x = st.number_input(
-                                "Ilość sztuk",
-                                min_value=0,
-                                step=1
-                            )
-
-                    else:
-
-                        dl_x = 0.0
-                        il_x = 0
-
-                # ==================================================
-                # OBLICZENIA
-                # ==================================================
-                masa_standard = (
-                    szt_7
-                    * 7
-                    * masa_1mb
-                )
-
-                masa_dodatkowa = (
-                    dl_x
-                    * il_x
-                    * masa_1mb
-                )
-
-                suma_kg = (
-                    masa_standard
-                    + masa_dodatkowa
-                )
-
-                st.divider()
-
-                # ==================================================
-                # WYNIK
-                # ==================================================
-                with st.container(border=True):
-
-                    st.subheader(
-                        "Wynik"
-                    )
-
-                    st.metric(
-                        label="TEORETYCZNA SUMA MASY NETTO",
-                        value=f"{suma_kg:,.0f} kg".replace(",", " ")
-                    )
-
-                    tabela = pd.DataFrame(
-                        {
-                            "Pozycja": [
-                                "Standard 7 mb",
-                                "Dodatkowa długość",
-                                "RAZEM"
-                            ],
-                            "Długość [mb]": [
-                                7,
-                                dl_x,
-                                ""
-                            ],
-                            "Ilość [szt]": [
-                                szt_7,
-                                il_x,
-                                szt_7 + il_x
-                            ],
-                            "Masa [kg]": [
-                                round(masa_standard, 2),
-                                round(masa_dodatkowa, 2),
-                                round(suma_kg, 2)
-                            ]
-                        }
-                    )
-
-                    st.dataframe(
-                        tabela,
-                        use_container_width=True,
-                        hide_index=True
-                    )
-
-    else:
+        st.subheader("📊 Widełki historyczne")
 
         st.info(
-            "Wybierz firmę, aby rozpocząć kalkulację."
+            f"Zakres na podstawie danych źródłowych:  \n\n"
+            f"**{masa_min:.0f} kg – {masa_max:.0f} kg**  \n\n"
+            f"Średnia historyczna: **{masa_avg_hist:.0f} kg**  \n\n"
+            f"Odchylenie od wyniku teoretycznego: **-{odchylenie_minus:.0f} kg / +{odchylenie_plus:.0f} kg**  \n\n"
+            f"Liczba pozycji historycznych: **{len(hist)}**"
         )
 
-    # ==================================================
-    # PODGLĄD DANYCH
-    # ==================================================
-    with st.expander(
-        "Podgląd danych"
-    ):
+        with st.expander("Szczegóły masy 1 mb"):
+            st.write(f"Minimalna masa 1 mb: **{min_1mb:.3f} kg/mb**")
+            st.write(f"Średnia historyczna 1 mb: **{avg_1mb:.3f} kg/mb**")
+            st.write(f"Maksymalna masa 1 mb: **{max_1mb:.3f} kg/mb**")
+            st.write(f"Masa z tabeli przestawnej: **{masa_1mb:.3f} kg/mb**")
 
-        st.dataframe(
-            df,
-            use_container_width=True
-        )
+    elif laczne_mb == 0:
+        st.warning("Wpisz ilość sztuk, aby policzyć widełki.")
+
+    else:
+        st.warning("Brak danych historycznych dla wybranej firmy, stopu i średnicy.")
 
 except Exception as e:
+    st.error("Problem z wczytaniem danych z Arkusza.")
+    st.write("Sprawdź, czy arkusze mają właściwe kolumny i czy są dostępne jako CSV.")
 
-    st.error(
-        "Wystąpił błąd aplikacji."
-    )
-
-    st.exception(e)
+    with st.expander("Szczegóły błędu"):
+        st.write(e)
