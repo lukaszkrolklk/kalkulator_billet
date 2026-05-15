@@ -1,46 +1,52 @@
 import streamlit as st
 import pandas as pd
+from pathlib import Path
 
-# =========================================
+# ==================================================
 # KONFIGURACJA STRONY
-# =========================================
+# ==================================================
 st.set_page_config(
     page_title="Kalkulator Dostaw Aluminium",
     page_icon="⚖️",
     layout="centered"
 )
 
-# =========================================
-# LOGO + NAGŁÓWEK
-# =========================================
+# ==================================================
+# LOGO
+# ==================================================
+LOGO_PATH = Path(__file__).parent / "logo.png"
+
 c1, c2 = st.columns([1, 2])
 
 with c1:
-    st.image("logo.png", width=220)
+
+    if LOGO_PATH.exists():
+        st.image(str(LOGO_PATH), width=220)
 
 with c2:
+
     st.title("Kalkulator Dostaw Aluminium")
     st.caption("Aliplast Aluminium Extrusion")
 
 st.divider()
 
-# =========================================
+# ==================================================
 # GOOGLE SHEETS
-# =========================================
+# ==================================================
 SHEET_ID = "1iXlPar8-AnWVJiZHjkU2muf6dwJnGvLvCZqxaJG2OAE"
 GID = "1361838733"
 
 url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID}"
 
-# =========================================
-# WCZYTANIE DANYCH
-# =========================================
+# ==================================================
+# WCZYTYWANIE DANYCH
+# ==================================================
 @st.cache_data(ttl=60)
 def load_data():
 
     df = pd.read_csv(url, header=None)
 
-    # Pierwsze 4 kolumny
+    # Pobieramy pierwsze 4 kolumny
     df = df.iloc[:, :4]
 
     df.columns = [
@@ -50,7 +56,7 @@ def load_data():
         "MASA_1MB"
     ]
 
-    # Czyszczenie śmieciowych wierszy
+    # Usuwanie pustych i technicznych wierszy
     df = df[df["FIRMA"].notna()]
 
     df = df[
@@ -63,13 +69,13 @@ def load_data():
         )
     ]
 
-    # Forward fill
+    # Uzupełnianie pustych komórek
     df["FIRMA"] = df["FIRMA"].ffill()
     df["STOP"] = df["STOP"].ffill()
 
-    # =========================================
-    # BILLET
-    # =========================================
+    # ==================================================
+    # CZYSZCZENIE BILLET
+    # ==================================================
     df["BILLET"] = (
         df["BILLET"]
         .astype(str)
@@ -85,9 +91,9 @@ def load_data():
         errors="coerce"
     )
 
-    # =========================================
-    # MASA
-    # =========================================
+    # ==================================================
+    # CZYSZCZENIE MASY
+    # ==================================================
     df["MASA_1MB"] = (
         df["MASA_1MB"]
         .astype(str)
@@ -102,7 +108,9 @@ def load_data():
         errors="coerce"
     )
 
-    # Usuwanie błędów
+    # ==================================================
+    # USUWANIE BŁĘDÓW
+    # ==================================================
     df = df.dropna(
         subset=[
             "FIRMA",
@@ -120,26 +128,26 @@ def load_data():
 
     return df
 
-
-# =========================================
-# APLIKACJA
-# =========================================
+# ==================================================
+# GŁÓWNA APLIKACJA
+# ==================================================
 try:
 
     df = load_data()
 
     if df.empty:
-        st.error("Brak danych.")
+        st.error("Brak danych w arkuszu.")
         st.stop()
 
-    # =========================================
+    # ==================================================
     # WYBÓR PARAMETRÓW
-    # =========================================
+    # ==================================================
     st.subheader("Wybierz parametry")
 
-    c1, c2, c3 = st.columns(3)
+    col1, col2, col3 = st.columns(3)
 
-    with c1:
+    # FIRMA
+    with col1:
 
         firmy = sorted(
             df["FIRMA"]
@@ -158,7 +166,8 @@ try:
             df["FIRMA"] == firma
         ]
 
-        with c2:
+        # STOP
+        with col2:
 
             stopy = sorted(
                 df_firma["STOP"]
@@ -177,7 +186,8 @@ try:
                 df_firma["STOP"] == stop
             ]
 
-            with c3:
+            # BILLET
+            with col3:
 
                 billety = sorted(
                     df_stop["BILLET"]
@@ -191,6 +201,7 @@ try:
                     format_func=lambda x: f'{x:g}"'
                 )
 
+            # POBRANIE MASY
             row = df_stop[
                 df_stop["BILLET"] == billet
             ]
@@ -203,9 +214,9 @@ try:
 
                 st.divider()
 
-                # =========================================
+                # ==================================================
                 # PARAMETRY
-                # =========================================
+                # ==================================================
                 with st.container(border=True):
 
                     st.subheader(
@@ -234,13 +245,13 @@ try:
                         f"{masa_1mb:.3f} kg"
                     )
 
-                # =========================================
-                # ILOŚCI
-                # =========================================
                 st.subheader(
                     "Wprowadź ilości"
                 )
 
+                # ==================================================
+                # ILOŚCI
+                # ==================================================
                 with st.container(border=True):
 
                     szt_7 = st.number_input(
@@ -279,9 +290,9 @@ try:
                         dl_x = 0.0
                         il_x = 0
 
-                # =========================================
+                # ==================================================
                 # OBLICZENIA
-                # =========================================
+                # ==================================================
                 masa_standard = (
                     szt_7
                     * 7
@@ -301,9 +312,9 @@ try:
 
                 st.divider()
 
-                # =========================================
+                # ==================================================
                 # WYNIK
-                # =========================================
+                # ==================================================
                 with st.container(border=True):
 
                     st.subheader("Wynik")
@@ -344,12 +355,19 @@ try:
                         hide_index=True
                     )
 
-    # =========================================
-    # DANE TECHNICZNE
-    # =========================================
+    else:
+
+        st.info(
+            "Wybierz firmę, aby rozpocząć kalkulację."
+        )
+
+    # ==================================================
+    # PODGLĄD DANYCH
+    # ==================================================
     with st.expander(
         "Podgląd danych"
     ):
+
         st.dataframe(
             df,
             use_container_width=True
