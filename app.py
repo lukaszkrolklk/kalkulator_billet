@@ -12,19 +12,56 @@ st.set_page_config(
 )
 
 # ==================================================
-# LOGO + NAGŁÓWEK
+# CSS
+# ==================================================
+st.markdown("""
+<style>
+
+.logo-container {
+    margin-top: 35px;
+}
+
+</style>
+""", unsafe_allow_html=True)
+
+# ==================================================
+# LOGO
 # ==================================================
 LOGO_PATH = Path(__file__).parent / "logo.PNG"
 
+# ==================================================
+# NAGŁÓWEK
+# ==================================================
 c1, c2 = st.columns([1, 2])
 
 with c1:
+
+    st.markdown(
+        '<div class="logo-container">',
+        unsafe_allow_html=True
+    )
+
     if LOGO_PATH.exists():
-        st.image(str(LOGO_PATH), width=220)
+
+        st.image(
+            str(LOGO_PATH),
+            width=220
+        )
+
+    st.markdown(
+        '</div>',
+        unsafe_allow_html=True
+    )
 
 with c2:
-    st.title("Kalkulator Dostaw Aluminium")
-    st.caption("Aliplast Aluminium Extrusion")
+
+    st.title(
+        "Kalkulator Dostaw Aluminium"
+    )
+
+    st.caption(
+        "Aliplast Aluminium Extrusion"
+    )
 
 st.divider()
 
@@ -34,7 +71,10 @@ st.divider()
 SHEET_ID = "1iXlPar8-AnWVJiZHjkU2muf6dwJnGvLvCZqxaJG2OAE"
 GID = "1361838733"
 
-url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid={GID}"
+url = (
+    f"https://docs.google.com/spreadsheets/d/"
+    f"{SHEET_ID}/export?format=csv&gid={GID}"
+)
 
 # ==================================================
 # WCZYTYWANIE DANYCH
@@ -42,9 +82,12 @@ url = f"https://docs.google.com/spreadsheets/d/{SHEET_ID}/export?format=csv&gid=
 @st.cache_data(ttl=60)
 def load_data():
 
-    df = pd.read_csv(url, header=None)
+    df = pd.read_csv(
+        url,
+        header=None
+    )
 
-    # Pobieramy pierwsze 4 kolumny z arkusza
+    # Pobieramy pierwsze 4 kolumny
     df = df.iloc[:, :4]
 
     df.columns = [
@@ -54,12 +97,14 @@ def load_data():
         "MASA_1MB"
     ]
 
-    # Zamiana pustych tekstów na prawdziwe puste wartości
-    df = df.replace(r"^\s*$", pd.NA, regex=True)
+    # Zamiana pustych tekstów
+    df = df.replace(
+        r"^\s*$",
+        pd.NA,
+        regex=True
+    )
 
-    # Usuwamy tylko wiersze techniczne/nagłówkowe,
-    # ale NIE usuwamy pustych komórek w kolumnie FIRMA,
-    # bo one są potrzebne do poprawnego ffill().
+    # Usuwamy tylko nagłówki / sumy
     mask_usun = (
         df["FIRMA"]
         .astype(str)
@@ -72,7 +117,7 @@ def load_data():
 
     df = df[~mask_usun]
 
-    # Uzupełniamy puste firmy i stopy danymi z poprzedniego wiersza
+    # Forward fill
     df["FIRMA"] = df["FIRMA"].ffill()
     df["STOP"] = df["STOP"].ffill()
 
@@ -87,7 +132,10 @@ def load_data():
         .str.strip()
     )
 
-    df["BILLET"] = df["BILLET"].str.extract(r"(\d+\.?\d*)")[0]
+    df["BILLET"] = (
+        df["BILLET"]
+        .str.extract(r"(\d+\.?\d*)")[0]
+    )
 
     df["BILLET"] = pd.to_numeric(
         df["BILLET"],
@@ -95,7 +143,7 @@ def load_data():
     )
 
     # ==================================================
-    # CZYSZCZENIE MASY 1MB
+    # CZYSZCZENIE MASY
     # ==================================================
     df["MASA_1MB"] = (
         df["MASA_1MB"]
@@ -104,7 +152,10 @@ def load_data():
         .str.strip()
     )
 
-    df["MASA_1MB"] = df["MASA_1MB"].str.extract(r"(\d+\.?\d*)")[0]
+    df["MASA_1MB"] = (
+        df["MASA_1MB"]
+        .str.extract(r"(\d+\.?\d*)")[0]
+    )
 
     df["MASA_1MB"] = pd.to_numeric(
         df["MASA_1MB"],
@@ -112,7 +163,7 @@ def load_data():
     )
 
     # ==================================================
-    # USUWANIE WIERSZY BEZ KOMPLETU DANYCH
+    # USUWANIE BŁĘDÓW
     # ==================================================
     df = df.dropna(
         subset=[
@@ -131,7 +182,6 @@ def load_data():
 
     return df
 
-
 # ==================================================
 # GŁÓWNA APLIKACJA
 # ==================================================
@@ -140,17 +190,25 @@ try:
     df = load_data()
 
     if df.empty:
-        st.error("Brak danych w arkuszu.")
+
+        st.error(
+            "Brak danych w arkuszu."
+        )
+
         st.stop()
 
     # ==================================================
     # WYBÓR PARAMETRÓW
     # ==================================================
-    st.subheader("Wybierz parametry")
+    st.subheader(
+        "Wybierz parametry"
+    )
 
     col1, col2, col3 = st.columns(3)
 
+    # ==================================================
     # FIRMA
+    # ==================================================
     with col1:
 
         firmy = sorted(
@@ -171,7 +229,9 @@ try:
             df["FIRMA"] == firma
         ]
 
+        # ==================================================
         # STOP
+        # ==================================================
         with col2:
 
             stopy = sorted(
@@ -192,7 +252,9 @@ try:
                 df_firma["STOP"] == stop
             ]
 
+            # ==================================================
             # BILLET
+            # ==================================================
             with col3:
 
                 billety = sorted(
@@ -208,6 +270,9 @@ try:
                     format_func=lambda x: f'{x:g}"'
                 )
 
+            # ==================================================
+            # MASA
+            # ==================================================
             row = df_stop[
                 df_stop["BILLET"] == billet
             ]
@@ -221,11 +286,13 @@ try:
                 st.divider()
 
                 # ==================================================
-                # WYBRANE PARAMETRY
+                # PARAMETRY
                 # ==================================================
                 with st.container(border=True):
 
-                    st.subheader("Wybrane parametry")
+                    st.subheader(
+                        "Wybrane parametry"
+                    )
 
                     p1, p2, p3, p4 = st.columns(4)
 
@@ -252,7 +319,9 @@ try:
                 # ==================================================
                 # ILOŚCI
                 # ==================================================
-                st.subheader("Wprowadź ilości")
+                st.subheader(
+                    "Wprowadź ilości"
+                )
 
                 with st.container(border=True):
 
@@ -295,9 +364,22 @@ try:
                 # ==================================================
                 # OBLICZENIA
                 # ==================================================
-                masa_standard = szt_7 * 7 * masa_1mb
-                masa_dodatkowa = dl_x * il_x * masa_1mb
-                suma_kg = masa_standard + masa_dodatkowa
+                masa_standard = (
+                    szt_7
+                    * 7
+                    * masa_1mb
+                )
+
+                masa_dodatkowa = (
+                    dl_x
+                    * il_x
+                    * masa_1mb
+                )
+
+                suma_kg = (
+                    masa_standard
+                    + masa_dodatkowa
+                )
 
                 st.divider()
 
@@ -306,7 +388,9 @@ try:
                 # ==================================================
                 with st.container(border=True):
 
-                    st.subheader("Wynik")
+                    st.subheader(
+                        "Wynik"
+                    )
 
                     st.metric(
                         label="TEORETYCZNA SUMA MASY NETTO",
@@ -346,12 +430,16 @@ try:
 
     else:
 
-        st.info("Wybierz firmę, aby rozpocząć kalkulację.")
+        st.info(
+            "Wybierz firmę, aby rozpocząć kalkulację."
+        )
 
     # ==================================================
     # PODGLĄD DANYCH
     # ==================================================
-    with st.expander("Podgląd danych"):
+    with st.expander(
+        "Podgląd danych"
+    ):
 
         st.dataframe(
             df,
@@ -360,5 +448,8 @@ try:
 
 except Exception as e:
 
-    st.error("Wystąpił błąd aplikacji.")
+    st.error(
+        "Wystąpił błąd aplikacji."
+    )
+
     st.exception(e)
