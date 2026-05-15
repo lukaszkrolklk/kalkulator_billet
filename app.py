@@ -12,19 +12,17 @@ st.set_page_config(
 )
 
 # ==================================================
-# LOGO
+# LOGO + NAGŁÓWEK
 # ==================================================
 LOGO_PATH = Path(__file__).parent / "logo.png"
 
 c1, c2 = st.columns([1, 2])
 
 with c1:
-
     if LOGO_PATH.exists():
         st.image(str(LOGO_PATH), width=220)
 
 with c2:
-
     st.title("Kalkulator Dostaw Aluminium")
     st.caption("Aliplast Aluminium Extrusion")
 
@@ -46,7 +44,7 @@ def load_data():
 
     df = pd.read_csv(url, header=None)
 
-    # Pobieramy pierwsze 4 kolumny
+    # Pobieramy pierwsze 4 kolumny z arkusza
     df = df.iloc[:, :4]
 
     df.columns = [
@@ -56,20 +54,25 @@ def load_data():
         "MASA_1MB"
     ]
 
-    # Usuwanie pustych i technicznych wierszy
-    df = df[df["FIRMA"].notna()]
+    # Zamiana pustych tekstów na prawdziwe puste wartości
+    df = df.replace(r"^\s*$", pd.NA, regex=True)
 
-    df = df[
-        ~df["FIRMA"]
+    # Usuwamy tylko wiersze techniczne/nagłówkowe,
+    # ale NIE usuwamy pustych komórek w kolumnie FIRMA,
+    # bo one są potrzebne do poprawnego ffill().
+    mask_usun = (
+        df["FIRMA"]
         .astype(str)
         .str.contains(
             "suma|firma|wytop",
             case=False,
             na=False
         )
-    ]
+    )
 
-    # Uzupełnianie pustych komórek
+    df = df[~mask_usun]
+
+    # Uzupełniamy puste firmy i stopy danymi z poprzedniego wiersza
     df["FIRMA"] = df["FIRMA"].ffill()
     df["STOP"] = df["STOP"].ffill()
 
@@ -92,7 +95,7 @@ def load_data():
     )
 
     # ==================================================
-    # CZYSZCZENIE MASY
+    # CZYSZCZENIE MASY 1MB
     # ==================================================
     df["MASA_1MB"] = (
         df["MASA_1MB"]
@@ -109,7 +112,7 @@ def load_data():
     )
 
     # ==================================================
-    # USUWANIE BŁĘDÓW
+    # USUWANIE WIERSZY BEZ KOMPLETU DANYCH
     # ==================================================
     df = df.dropna(
         subset=[
@@ -127,6 +130,7 @@ def load_data():
     ]
 
     return df
+
 
 # ==================================================
 # GŁÓWNA APLIKACJA
@@ -151,6 +155,7 @@ try:
 
         firmy = sorted(
             df["FIRMA"]
+            .dropna()
             .unique()
             .tolist()
         )
@@ -171,6 +176,7 @@ try:
 
             stopy = sorted(
                 df_firma["STOP"]
+                .dropna()
                 .unique()
                 .tolist()
             )
@@ -191,6 +197,7 @@ try:
 
                 billety = sorted(
                     df_stop["BILLET"]
+                    .dropna()
                     .unique()
                     .tolist()
                 )
@@ -201,7 +208,6 @@ try:
                     format_func=lambda x: f'{x:g}"'
                 )
 
-            # POBRANIE MASY
             row = df_stop[
                 df_stop["BILLET"] == billet
             ]
@@ -215,13 +221,11 @@ try:
                 st.divider()
 
                 # ==================================================
-                # PARAMETRY
+                # WYBRANE PARAMETRY
                 # ==================================================
                 with st.container(border=True):
 
-                    st.subheader(
-                        "Wybrane parametry"
-                    )
+                    st.subheader("Wybrane parametry")
 
                     p1, p2, p3, p4 = st.columns(4)
 
@@ -245,13 +249,11 @@ try:
                         f"{masa_1mb:.3f} kg"
                     )
 
-                st.subheader(
-                    "Wprowadź ilości"
-                )
-
                 # ==================================================
                 # ILOŚCI
                 # ==================================================
+                st.subheader("Wprowadź ilości")
+
                 with st.container(border=True):
 
                     szt_7 = st.number_input(
@@ -293,22 +295,9 @@ try:
                 # ==================================================
                 # OBLICZENIA
                 # ==================================================
-                masa_standard = (
-                    szt_7
-                    * 7
-                    * masa_1mb
-                )
-
-                masa_dodatkowa = (
-                    dl_x
-                    * il_x
-                    * masa_1mb
-                )
-
-                suma_kg = (
-                    masa_standard
-                    + masa_dodatkowa
-                )
+                masa_standard = szt_7 * 7 * masa_1mb
+                masa_dodatkowa = dl_x * il_x * masa_1mb
+                suma_kg = masa_standard + masa_dodatkowa
 
                 st.divider()
 
@@ -357,16 +346,12 @@ try:
 
     else:
 
-        st.info(
-            "Wybierz firmę, aby rozpocząć kalkulację."
-        )
+        st.info("Wybierz firmę, aby rozpocząć kalkulację.")
 
     # ==================================================
     # PODGLĄD DANYCH
     # ==================================================
-    with st.expander(
-        "Podgląd danych"
-    ):
+    with st.expander("Podgląd danych"):
 
         st.dataframe(
             df,
@@ -375,8 +360,5 @@ try:
 
 except Exception as e:
 
-    st.error(
-        "Wystąpił błąd aplikacji."
-    )
-
+    st.error("Wystąpił błąd aplikacji.")
     st.exception(e)
