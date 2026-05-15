@@ -14,7 +14,7 @@ st.set_page_config(
 # ==================================================
 # LOGO + NAGŁÓWEK
 # ==================================================
-LOGO_PATH = Path(__file__).parent / "logo.png"
+LOGO_PATH = Path(__file__).parent / "logo.PNG"
 
 c1, c2 = st.columns([1, 2])
 
