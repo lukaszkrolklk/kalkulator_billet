@@ -394,7 +394,7 @@ try:
 
                     st.metric(
                         label="TEORETYCZNA SUMA MASY NETTO",
-                        value=f"{suma_kg:,.2f} kg".replace(",", " ")
+                        value=f"{suma_kg:,.0f} kg".replace(",", " ")
                     )
 
                     tabela = pd.DataFrame(
